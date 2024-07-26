@@ -1,4 +1,4 @@
-import { CommandModule } from "yargs";
+import { ArgumentsCamelCase, CommandModule, InferredOptionTypes } from "yargs";
 
 import {
   collectAppName,
@@ -8,7 +8,8 @@ import {
   exportApp,
   getAppsAndFolders,
 } from "../utils/apps";
-import type { App } from "../utils/apps";
+import type { App, Folder } from "../utils/apps";
+import { createBuilder } from "../utils/command"
 import { getAndVerifyCredentialsWithRetoolDB } from "../utils/credentials";
 import { dateOptions } from "../utils/date";
 import {
@@ -18,16 +19,25 @@ import {
 } from "../utils/table";
 import { logDAU } from "../utils/telemetry";
 
+const outputFormats = ["default", "json"] as const;
+export type OutputFormat = typeof outputFormats[number]
+
 const command = "apps";
 const describe = "Interface with Retool Apps.";
-const builder: CommandModule["builder"] = {
+const builder = createBuilder({
   create: {
     alias: "c",
-    describe: `Create a new app.`,
+    describe: `Create a new app. Optionally provide an app name to be created. Usage:
+      retool apps -c [app-name]`,
   },
   "create-from-table": {
     alias: "t",
     describe: `Create a new app to visualize a Retool DB table.`,
+    type: "boolean",
+  },
+  force: {
+    describe: "Force the operation without confirmation",
+    type: "boolean",
   },
   list: {
     alias: "l",
@@ -37,44 +47,54 @@ const builder: CommandModule["builder"] = {
   "list-recursive": {
     alias: "r",
     describe: `List all apps and folders.`,
+    type: "boolean",
+  },
+  "output-format": {
+    choices: outputFormats,
+    default: "default",
+    describe: "Specify output format",
   },
   delete: {
     alias: "d",
     describe: `Delete an app. Usage:
       retool apps -d <app-name>`,
+    string: true,
     type: "array",
   },
   export: {
     alias: "e",
     describe: `Export an app JSON. Usage:
       retool apps -e <app-name>`,
+    string: true,
     type: "array",
   },
-};
-const handler = async function (argv: any) {
+} as const);
+type AppOptionType = InferredOptionTypes<typeof builder>
+const handler = async function (argv: ArgumentsCamelCase<AppOptionType>) {
   const credentials = await getAndVerifyCredentialsWithRetoolDB();
   // fire and forget
   void logDAU(credentials);
 
   // Handle `retool apps --list [folder-name]`
-  if (argv.list || argv.r) {
+  const listOption = argv.list
+  if (listOption || argv.listRecursive) {
     let { apps, folders } = await getAppsAndFolders(credentials);
     const rootFolderId = folders?.find(
       (folder) => folder.name === "root" && folder.systemFolder === true
     )?.id;
 
     // Only list apps in the specified folder.
-    if (typeof argv.list === "string") {
-      const folderId = folders?.find((folder) => folder.name === argv.list)?.id;
-      if (folderId) {
-        const appsInFolder = apps?.filter((app) => app.folderId === folderId);
+    if (typeof listOption === "string") {
+      const folder = folders?.find((folder) => folder.name === listOption);
+      if (folder) {
+        const appsInFolder = apps?.filter((app) => app.folderId === folder.id);
         if (appsInFolder && appsInFolder.length > 0) {
-          printApps(appsInFolder);
+          printApps([], appsInFolder, argv.outputFormat);
         } else {
-          console.log(`No apps found in ${argv.list}.`);
+          console.error(`No apps found in ${listOption}.`);
         }
       } else {
-        console.log(`No folder named ${argv.list} found.`);
+        console.error(`No folder named ${listOption} found.`);
       }
     }
 
@@ -82,7 +102,7 @@ const handler = async function (argv: any) {
     else {
       // Filter out undesired folders/apps.
       folders = folders?.filter((folder) => folder.systemFolder === false);
-      if (!argv.r) {
+      if (!argv.listRecursive) {
         apps = apps?.filter((app) => app.folderId === rootFolderId);
       }
 
@@ -95,21 +115,10 @@ const handler = async function (argv: any) {
       });
 
       if ((!folders || folders.length === 0) && (!apps || apps.length === 0)) {
-        console.log("No folders or apps found.");
+        console.error("No folders or apps found.");
       } else {
-        // List all folders
-        if (folders && folders?.length > 0) {
-          folders.forEach((folder) => {
-            const date = new Date(Date.parse(folder.updatedAt));
-            console.log(
-              `${date.toLocaleString(undefined, dateOptions)}     📂     ${
-                folder.name
-              }/`
-            );
-          });
-        }
-        // List all apps in root folder.
-        printApps(apps);
+        // List all folders and apps in root folder.
+        printApps(folders, apps, argv.outputFormat);
       }
     }
   }
@@ -133,21 +142,22 @@ const handler = async function (argv: any) {
       appName,
       tableName,
       searchColumnName || tableInfo.primaryKeyColumn,
-      credentials
+      credentials,
+      argv.outputFormat,
     );
   }
 
   // Handle `retool apps --create`
   else if (argv.create) {
-    const appName = await collectAppName();
-    await createApp(appName, credentials);
+    const appName = typeof argv.create === "string" ? argv.create : await collectAppName();
+    await createApp(appName, credentials, argv.outputFormat);
   }
 
   // Handle `retool apps -d <app-name>`
   else if (argv.delete) {
     const appNames = argv.delete;
     for (const appName of appNames) {
-      await deleteApp(appName, credentials, true);
+      await deleteApp(appName, credentials, !argv.force, argv.outputFormat);
     }
   }
 
@@ -161,26 +171,43 @@ const handler = async function (argv: any) {
 
   // No flag specified.
   else {
-    console.log(
+    console.error(
       "No flag specified. See `retool apps --help` for available flags."
     );
   }
 };
 
-function printApps(apps: Array<App> | undefined): void {
-  if (apps && apps?.length > 0) {
-    apps.forEach((app) => {
-      const date = new Date(Date.parse(app.updatedAt));
-      console.log(
-        `${date.toLocaleString(undefined, dateOptions)}     ${
-          app.isGlobalWidget ? "🔧" : "💻"
-        }     ${app.name}`
-      );
-    });
+function printApps(folders: Array<Folder> | undefined, apps: Array<App> | undefined, format: OutputFormat): void {
+  switch (format) {
+    case "json":
+      console.log(JSON.stringify({ folders, apps }, null, 2));
+      break;
+    default:
+        if (folders && folders?.length > 0) {
+          folders.forEach((folder) => {
+            const date = new Date(Date.parse(folder.updatedAt));
+            console.log(
+              `${date.toLocaleString(undefined, dateOptions)}     📂     ${
+                folder.name
+              }/`
+            );
+          });
+        }
+      if (apps && apps?.length > 0) {
+        apps.forEach((app) => {
+          const date = new Date(Date.parse(app.updatedAt));
+          console.log(
+            `${date.toLocaleString(undefined, dateOptions)}     ${
+              app.isGlobalWidget ? "🔧" : "💻"
+            }     ${app.name}`
+          );
+        });
+      }
+      break;
   }
 }
 
-const commandModule: CommandModule = {
+const commandModule: CommandModule<any, AppOptionType> = {
   command,
   describe,
   builder,

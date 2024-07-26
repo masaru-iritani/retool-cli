@@ -2,6 +2,7 @@ import chalk from "chalk";
 
 import { Credentials } from "./credentials";
 import { getRequest, postRequest } from "./networking";
+import { OutputFormat } from "../commands/apps";
 
 const fs = require("fs");
 
@@ -20,7 +21,7 @@ export type App = {
   isGlobalWidget: boolean; // is a module
 };
 
-type Folder = {
+export type Folder = {
   id: number;
   parentFolderId: number;
   name: string;
@@ -33,11 +34,12 @@ type Folder = {
 
 export async function createApp(
   appName: string,
-  credentials: Credentials
-): Promise<App | undefined> {
+  credentials: Credentials,
+  outputFormat: OutputFormat,
+) {
   const spinner = ora("Creating App").start();
 
-  const createAppResult = await postRequest(
+  const { data: createAppResult } = await postRequest(
     `${credentials.origin}/api/pages/createPage`,
     {
       pageName: appName,
@@ -48,19 +50,25 @@ export async function createApp(
   );
   spinner.stop();
 
-  const { page } = createAppResult.data;
+  const { page } = createAppResult;
   if (!page?.uuid) {
-    console.log("Error creating app.");
-    console.log(createAppResult.data);
+    console.error("Error creating app.");
+    console.error(createAppResult);
     process.exit(1);
-  } else {
-    console.log("Successfully created an App. 🎉");
-    console.log(
-      `${chalk.bold("View in browser:")} ${credentials.origin}/editor/${
-        page.uuid
-      }`
-    );
-    return page;
+  }
+
+  switch (outputFormat) {
+    case "json":
+      console.log(JSON.stringify(createAppResult, null, 2));
+      break;
+    default:
+      console.log("Successfully created an App. 🎉");
+      console.log(
+        `${chalk.bold("View in browser:")} ${credentials.origin}/editor/${
+          page.uuid
+        }`
+      );
+      break;
   }
 }
 
@@ -68,11 +76,12 @@ export async function createAppForTable(
   appName: string,
   tableName: string,
   columnName: string, //The column to use for search bar.
-  credentials: Credentials
+  credentials: Credentials,
+  format: OutputFormat,
 ) {
   const spinner = ora("Creating App").start();
 
-  const createAppResult = await postRequest(
+  const { data: createAppResult } = await postRequest(
     `${credentials.origin}/api/pages/autogeneratePage`,
     {
       appName,
@@ -83,18 +92,21 @@ export async function createAppForTable(
   );
   spinner.stop();
 
-  const { pageUuid } = createAppResult.data;
+  const { pageUuid } = createAppResult;
   if (!pageUuid) {
-    console.log("Error creating app.");
-    console.log(createAppResult.data);
+    console.error("Error creating app.");
+    console.error(createAppResult);
     process.exit(1);
-  } else {
-    console.log("Successfully created an App. 🎉");
-    console.log(
-      `${chalk.bold("View in browser:")} ${
-        credentials.origin
-      }/editor/${pageUuid}`
-    );
+  }
+
+  switch (format) {
+    case "json":
+      console.log(JSON.stringify(createAppResult, null, 2));
+      break;
+    default:
+      console.log("Successfully created an App. 🎉");
+      console.log(`${chalk.bold("View in browser:")} ${credentials.origin}/editor/${pageUuid}`);
+      break;
   }
 }
 
@@ -113,7 +125,7 @@ export async function exportApp(appName: string, credentials: Credentials) {
 
   // Export the app.
   const spinner = ora("Exporting App").start();
-  const response = await axios.post(
+  const { data: exportAppResult } = await axios.post(
     `${credentials.origin}/api/pages/uuids/${app[0].uuid}/export`,
     {},
     {
@@ -125,7 +137,7 @@ export async function exportApp(appName: string, credentials: Credentials) {
   try {
     const filePath = `${appName}.json`;
     const writer = fs.createWriteStream(filePath);
-    response.data.pipe(writer);
+    exportAppResult.pipe(writer);
   } catch (error) {
     console.error("Error exporting app.");
     process.exit(1);
@@ -138,7 +150,8 @@ export async function exportApp(appName: string, credentials: Credentials) {
 export async function deleteApp(
   appName: string,
   credentials: Credentials,
-  confirmDeletion: boolean
+  confirmDeletion: boolean,
+  outputFormat: OutputFormat,
 ) {
   if (confirmDeletion) {
     const { confirm } = await inquirer.prompt([
@@ -161,18 +174,25 @@ export async function deleteApp(
     }
   });
   if (app?.length != 1) {
-    console.log(`0 or >1 Apps named ${appName} found. 😓`);
+    console.error(`0 or >1 Apps named ${appName} found. 😓`);
     process.exit(1);
   }
 
   // Delete the app.
   const spinner = ora("Deleting App").start();
-  await postRequest(`${credentials.origin}/api/folders/deletePage`, {
+  const { data: deleteAppResult } = await postRequest(`${credentials.origin}/api/folders/deletePage`, {
     pageId: app[0].id,
   });
   spinner.stop();
 
-  console.log(`Deleted ${appName} app. 🗑️`);
+  switch (outputFormat) {
+    case "json":
+      console.log(JSON.stringify(deleteAppResult, null, 2));
+      break;
+    default:
+      console.log(`Deleted ${appName} app. 🗑️`);
+      break;
+  }
 }
 
 // Fetch all apps (excluding apps in trash).
@@ -209,7 +229,7 @@ export async function collectAppName(): Promise<string> {
   ]);
 
   if (appName.length === 0) {
-    console.log("Error: App name cannot be blank.");
+    console.error("Error: App name cannot be blank.");
     process.exit(1);
   }
 

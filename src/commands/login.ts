@@ -1,7 +1,8 @@
 import { confirm, input, select } from "@inquirer/prompts";
 import express from "express";
-import { ArgumentsCamelCase, CommandBuilder, CommandModule, InferredOptionTypes } from "yargs";
+import { ArgumentsCamelCase, CommandModule, InferredOptionTypes } from "yargs";
 
+import { createBuilder } from "../utils/command";
 import { accessTokenFromCookies, xsrfTokenFromCookies } from "../utils/cookies";
 import {
   askForCookies,
@@ -17,10 +18,6 @@ const path = require("path");
 const axios = require("axios");
 const chalk = require("chalk");
 const open = require("open");
-
-// A helper function to create CommandBuilder without losing the type
-// information about defined keys.
-function createBuilder<T extends CommandBuilder>(input: T) { return input }
 
 const command = "login";
 const describe = "Log in to Retool.";
@@ -56,10 +53,10 @@ const builder = createBuilder({
     type: "string",
   },
   "xsrf-token": {
-    describe: "Specify XSRF token to use for Coookie login",
+    describe: "Specify XSRF token to use for Cookie login",
     type: "string",
   },
-});
+} as const);
 
 type LoginOptionType = InferredOptionTypes<typeof builder>
 const handler = async function (argv: ArgumentsCamelCase<LoginOptionType>) {

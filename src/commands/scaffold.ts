@@ -60,6 +60,9 @@ const handler = async function (argv: any) {
   // fire and forget
   void logDAU(credentials);
 
+  // TODO: Support JSON output.
+  const format = "default";
+
   // Handle `retool scaffold -d <db_name>`
   if (argv.delete) {
     const tableName = argv.delete;
@@ -81,7 +84,7 @@ const handler = async function (argv: any) {
     //TODO: Verify existence before trying to delete.
     await deleteTable(tableName, credentials, false);
     await deleteWorkflow(workflowName, credentials, false);
-    await deleteApp(`${tableName} App`, credentials, false);
+    await deleteApp(`${tableName} App`, credentials, false, format);
   }
 
   // Handle `retool scaffold -f <path-to-csv>`
@@ -107,7 +110,8 @@ const handler = async function (argv: any) {
         `${tableName} App`,
         tableName,
         searchColumnName,
-        credentials
+        credentials,
+        format,
       );
       console.log("");
     }
@@ -139,7 +143,8 @@ const handler = async function (argv: any) {
       `${tableName} App`,
       tableName,
       searchColumnName,
-      credentials
+      credentials,
+      format,
     );
   }
 };
