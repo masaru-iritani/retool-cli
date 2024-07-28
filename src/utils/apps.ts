@@ -1,13 +1,12 @@
+import fs from "fs";
+
+import { confirm, input } from "@inquirer/prompts";
+import axios from "axios";
 import chalk from "chalk";
+import ora from "ora";
 
 import { Credentials } from "./credentials";
 import { getRequest, postRequest } from "./networking";
-
-const fs = require("fs");
-
-const axios = require("axios");
-const inquirer = require("inquirer");
-const ora = require("ora");
 
 export type App = {
   uuid: string;
@@ -101,11 +100,7 @@ export async function createAppForTable(
 export async function exportApp(appName: string, credentials: Credentials) {
   // Verify that the provided appName exists.
   const { apps } = await getAppsAndFolders(credentials);
-  const app = apps?.filter((app) => {
-    if (app.name === appName) {
-      return app;
-    }
-  });
+  const app = apps?.filter((app) => app.name === appName)
   if (app?.length != 1) {
     console.log(`0 or >1 Apps named ${appName} found. 😓`);
     process.exit(1);
@@ -141,25 +136,17 @@ export async function deleteApp(
   confirmDeletion: boolean
 ) {
   if (confirmDeletion) {
-    const { confirm } = await inquirer.prompt([
-      {
-        name: "confirm",
-        message: `Are you sure you want to delete ${appName}?`,
-        type: "confirm",
-      },
-    ]);
-    if (!confirm) {
+    const confirmed = await confirm({
+      message: `Are you sure you want to delete ${appName}?`,
+    });
+    if (!confirmed) {
       process.exit(0);
     }
   }
 
   // Verify that the provided appName exists.
   const { apps } = await getAppsAndFolders(credentials);
-  const app = apps?.filter((app) => {
-    if (app.name === appName) {
-      return app;
-    }
-  });
+  const app = apps?.filter((app) => app.name === appName);
   if (app?.length != 1) {
     console.log(`0 or >1 Apps named ${appName} found. 😓`);
     process.exit(1);
@@ -190,23 +177,19 @@ export async function getAppsAndFolders(
   const apps: Array<App> | undefined = fetchAppsResponse?.data?.pages;
   const folders: Array<Folder> | undefined = fetchAppsResponse?.data?.folders;
   const trashFolderId = folders?.find(
-    (folder) => folder.name === "archive" && folder.systemFolder === true
+    (folder) => folder.name === "archive" && folder.systemFolder
   )?.id;
 
   return {
     apps: apps?.filter((app) => app.folderId !== trashFolderId),
-    folders: fetchAppsResponse?.data?.folders,
+    folders: folders,
   };
 }
 
 export async function collectAppName(): Promise<string> {
-  const { appName } = await inquirer.prompt([
-    {
-      name: "appName",
-      message: "App name?",
-      type: "input",
-    },
-  ]);
+  const appName = await input({
+    message: "App name?",
+  });
 
   if (appName.length === 0) {
     console.log("Error: App name cannot be blank.");

@@ -1,7 +1,13 @@
-import { confirm, input, select } from "@inquirer/prompts";
-import express from "express";
-import { ArgumentsCamelCase, CommandBuilder, CommandModule, InferredOptionTypes } from "yargs";
+import path from "path";
 
+import { confirm, input, select } from "@inquirer/prompts";
+import axios from "axios";
+import chalk from "chalk";
+import express from "express";
+import open from "open";
+import { ArgumentsCamelCase, CommandModule, InferredOptionTypes } from "yargs";
+
+import { createBuilder } from "../utils/command";
 import { accessTokenFromCookies, xsrfTokenFromCookies } from "../utils/cookies";
 import {
   askForCookies,
@@ -11,16 +17,6 @@ import {
 } from "../utils/credentials";
 import { getRequest, postRequest } from "../utils/networking";
 import { logDAU } from "../utils/telemetry";
-
-const path = require("path");
-
-const axios = require("axios");
-const chalk = require("chalk");
-const open = require("open");
-
-// A helper function to create CommandBuilder without losing the type
-// information about defined keys.
-function createBuilder<T extends CommandBuilder>(input: T) { return input }
 
 const command = "login";
 const describe = "Log in to Retool.";
@@ -39,12 +35,7 @@ const builder = createBuilder({
   },
   "login-method": {
     describe: "Specify login method",
-    choices: [
-      "browser",
-      "email",
-      "cookies",
-      "localhost",
-    ],
+    choices: ["browser", "email", "cookies", "localhost"],
     type: "string",
   },
   origin: {
@@ -59,22 +50,23 @@ const builder = createBuilder({
     describe: "Specify XSRF token to use for Coookie login",
     type: "string",
   },
-});
+} as const);
 
-type LoginOptionType = InferredOptionTypes<typeof builder>
-const handler = async function (argv: ArgumentsCamelCase<LoginOptionType>) {
+type LoginOptionTypes = InferredOptionTypes<typeof builder>;
+
+const handler = async function (argv: ArgumentsCamelCase<LoginOptionTypes>) {
   // Ask user if they want to overwrite existing credentials.
   if (doCredentialsExist() && !argv.force) {
     const overwrite = await confirm({
       message: "You're already logged in. Do you want to re-authenticate?",
-    })
+    });
     if (!overwrite) {
       return;
     }
   }
 
   // Ask user how they want to login.
-  let loginMethod = argv.loginMethod
+  let loginMethod = argv.loginMethod;
   if (!loginMethod) {
     loginMethod = await select({
       message: "How would you like to login?",
@@ -118,11 +110,15 @@ const handler = async function (argv: ArgumentsCamelCase<LoginOptionType>) {
 // Ask the user to input their email and password.
 // Fire off a request to Retool's login & auth endpoints.
 // Persist the credentials.
-async function loginViaEmail(localhost = false, email?: string, password?: string) {
+async function loginViaEmail(
+  localhost = false,
+  email?: string,
+  password?: string
+) {
   if (!email) {
     email = await input({
       message: "What is your email?",
-    })
+    });
   }
   if (!password) {
     password = await input({
@@ -160,8 +156,8 @@ async function loginViaEmail(localhost = false, email?: string, password?: strin
   const redirectUrl = localhost
     ? new URL(loginOrigin)
     : redirectUri
-    ? new URL(redirectUri)
-    : undefined;
+      ? new URL(redirectUri)
+      : undefined;
   const accessToken = accessTokenFromCookies(
     authResponse.headers["set-cookie"]
   );
@@ -232,7 +228,7 @@ async function loginViaBrowser() {
 
   // Step 1: Open up the google SSO page in the browser.
   // Step 2: User accepts the SSO request.
-  open(
+  await open(
     `https://login.retool.com/googlelogin?retoolCliRedirect=true&origin=login`
   );
   // For local testing:
@@ -262,7 +258,7 @@ export function logSuccess() {
   }
 }
 
-const commandModule: CommandModule<any, LoginOptionType> = {
+const commandModule: CommandModule<any, LoginOptionTypes> = {
   command,
   describe,
   builder,

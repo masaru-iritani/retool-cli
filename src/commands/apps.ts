@@ -1,4 +1,4 @@
-import { CommandModule } from "yargs";
+import { ArgumentsCamelCase, CommandModule, InferredOptionTypes } from "yargs";
 
 import {
   collectAppName,
@@ -9,6 +9,7 @@ import {
   getAppsAndFolders,
 } from "../utils/apps";
 import type { App } from "../utils/apps";
+import { createBuilder } from "../utils/command";
 import { getAndVerifyCredentialsWithRetoolDB } from "../utils/credentials";
 import { dateOptions } from "../utils/date";
 import {
@@ -20,69 +21,81 @@ import { logDAU } from "../utils/telemetry";
 
 const command = "apps";
 const describe = "Interface with Retool Apps.";
-const builder: CommandModule["builder"] = {
+const builder = createBuilder({
   create: {
     alias: "c",
     describe: `Create a new app.`,
+    type: "boolean",
   },
   "create-from-table": {
     alias: "t",
     describe: `Create a new app to visualize a Retool DB table.`,
+    type: "boolean",
   },
   list: {
     alias: "l",
     describe: `List folders and apps at root level. Optionally provide a folder name to list all apps in that folder. Usage:
       retool apps -l [folder-name]`,
+    // Intentionally untyped to allow for string or boolean.
   },
   "list-recursive": {
     alias: "r",
     describe: `List all apps and folders.`,
+    type: "boolean",
   },
   delete: {
     alias: "d",
     describe: `Delete an app. Usage:
       retool apps -d <app-name>`,
+    string: true,
     type: "array",
   },
   export: {
     alias: "e",
     describe: `Export an app JSON. Usage:
       retool apps -e <app-name>`,
+    string: true,
     type: "array",
   },
-};
-const handler = async function (argv: any) {
+} as const);
+
+type AppsOptionTypes = InferredOptionTypes<typeof builder>;
+
+const handler = async function (argv: ArgumentsCamelCase<AppsOptionTypes>) {
   const credentials = await getAndVerifyCredentialsWithRetoolDB();
   // fire and forget
   void logDAU(credentials);
 
   // Handle `retool apps --list [folder-name]`
-  if (argv.list || argv.r) {
+  if (argv.list || argv.listRecursive) {
     let { apps, folders } = await getAppsAndFolders(credentials);
     const rootFolderId = folders?.find(
-      (folder) => folder.name === "root" && folder.systemFolder === true
+      (folder) => folder.name === "root" && folder.systemFolder
     )?.id;
 
     // Only list apps in the specified folder.
-    if (typeof argv.list === "string") {
-      const folderId = folders?.find((folder) => folder.name === argv.list)?.id;
+    const folderName = argv.list;
+    if (typeof folderName === "string") {
+      const folderId = folders?.find(
+        (folder) => folder.name === folderName
+      )?.id;
       if (folderId) {
         const appsInFolder = apps?.filter((app) => app.folderId === folderId);
         if (appsInFolder && appsInFolder.length > 0) {
           printApps(appsInFolder);
         } else {
-          console.log(`No apps found in ${argv.list}.`);
+          console.log(`No apps found in ${folderName}.`);
         }
       } else {
-        console.log(`No folder named ${argv.list} found.`);
+        console.log(`No folder named ${folderName} found.`);
       }
     }
 
     // List all folders, then all apps in root folder.
     else {
       // Filter out undesired folders/apps.
-      folders = folders?.filter((folder) => folder.systemFolder === false);
-      if (!argv.r) {
+      folders = folders?.filter((folder) => !folder.systemFolder);
+      if (!argv.listRecursive) {
         apps = apps?.filter((app) => app.folderId === rootFolderId);
       }
 
@@ -115,7 +128,7 @@ const handler = async function (argv: any) {
   }
 
   // Handle `retool apps --create-from-table`
-  else if (argv.t) {
+  else if (argv.createFromTable) {
     const tableName = await collectTableName();
     await verifyTableExists(tableName, credentials);
     const tableInfo = await fetchTableInfo(tableName, credentials);
@@ -180,7 +193,7 @@ function printApps(apps: Array<App> | undefined): void {
   }
 }
 
-const commandModule: CommandModule = {
+const commandModule: CommandModule<any, AppsOptionTypes> = {
   command,
   describe,
   builder,
